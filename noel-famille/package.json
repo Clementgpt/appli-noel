@@ -1,0 +1,14 @@
+{
+  "name": "noel-famille",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Tirage au sort de Noël en famille + listes de cadeaux",
+  "scripts": {
+    "test": "node test/test.mjs"
+  },
+  "dependencies": {
+    "@netlify/blobs": "^8.1.0"
+  },
+  "engines": { "node": ">=18" }
+}
