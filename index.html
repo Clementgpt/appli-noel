@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Noël en famille 🎁</title>
+<style>
+:root{--green:#1f4d3a;--green2:#2e6b52;--red:#b3282d;--cream:#fbf6ec;--card:#fff;--ink:#27302b;--mute:#6b756f;--line:#e6dfce;--gold:#c8962e}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--ink);background:var(--cream)}
+h1,h2,h3{font-family:Georgia,"Times New Roman",serif;margin:0 0 .4em;color:var(--green)}
+header{background:var(--green);color:#fff;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px}
+header h1{color:#fff;font-size:1.25rem;margin:0}
+header small{opacity:.8}
+main{max-width:640px;margin:0 auto;padding:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px}
+label{display:block;font-size:.85rem;color:var(--mute);margin:10px 0 4px}
+input,textarea{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:10px;font:inherit;background:#fff}
+input:focus,textarea:focus{outline:2px solid var(--green2);border-color:transparent}
+button{font:inherit;cursor:pointer;border:0;border-radius:10px;padding:11px 16px;background:var(--green);color:#fff;font-weight:600}
+button.red{background:var(--red)}
+button.ghost{background:transparent;color:var(--green);border:1px solid var(--line)}
+button.small{padding:6px 10px;font-size:.85rem}
+button:disabled{opacity:.5}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.row.between{justify-content:space-between}
+.tabs{display:flex;gap:6px;overflow-x:auto;padding:10px 12px 0;max-width:640px;margin:0 auto}
+.tabs button{background:#efe7d3;color:var(--green);white-space:nowrap}
+.tabs button.on{background:var(--green);color:#fff}
+.err{color:var(--red);font-size:.9rem;margin:8px 0 0;min-height:1.2em}
+.ok{color:var(--green2);font-size:.9rem}
+.mute{color:var(--mute);font-size:.9rem}
+.reveal{text-align:center;padding:28px 16px;background:linear-gradient(135deg,#fff 0%,#fff7e0 100%)}
+.reveal .gift{font-size:3.2rem}
+.reveal .who{font-family:Georgia,serif;font-size:2rem;color:var(--red);margin:6px 0 2px}
+.wish{border-top:1px solid var(--line);padding:10px 0}
+.wish:first-child{border-top:0}
+.wish b{display:block}
+.wish a{color:var(--green2);word-break:break-all}
+.pill{display:inline-block;background:#efe7d3;color:var(--green);border-radius:99px;padding:2px 9px;font-size:.78rem;margin-left:6px}
+.member{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 0;border-top:1px solid var(--line);cursor:pointer}
+.member:first-child{border-top:0}
+.center{text-align:center}
+.snow{font-size:2.4rem}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+"use strict";
+/* ---------- petits utilitaires ---------- */
+function h(tag, attrs, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (k === "class") e.className = v;
+    else if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
+    else if (v === true) e.setAttribute(k, "");
+    else if (v !== false && v != null) e.setAttribute(k, v);
+  }
+  for (const c of kids.flat()) { if (c == null || c === false) continue; e.append(c.nodeType ? c : document.createTextNode(c)); }
+  return e;
+}
+const app = document.getElementById("app");
+let token = null;
+try { token = localStorage.getItem("noel_token"); } catch {}
+const state = { me: null, members: [], tab: "tirage", revealed: false, viewing: null, confirm: null, flash: "" };
+
+async function api(path, { method = "GET", body } = {}) {
+  const r = await fetch("/api" + path, {
+    method,
+    headers: { "content-type": "application/json", ...(token ? { authorization: "Bearer " + token } : {}) },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  let data = {};
+  try { data = await r.json(); } catch {}
+  if (r.status === 401 && token) { logout(false); }
+  if (!r.ok) throw new Error(data.error || "Erreur réseau");
+  return data;
+}
+function setToken(t) { token = t; try { localStorage.setItem("noel_token", t); } catch {} }
+function logout(render = true) {
+  token = null; try { localStorage.removeItem("noel_token"); } catch {}
+  state.me = null; state.revealed = false; state.viewing = null;
+  if (render) renderAuth();
+}
+function safeUrl(u) { return /^https?:\/\//i.test(u) ? u : null; }
+
+/* ---------- connexion / inscription ---------- */
+function renderAuth(mode = "login", message = "") {
+  const err = h("p", { class: "err" }, message);
+  const isSignup = mode === "signup";
+  const name = h("input", { autocomplete: "username", placeholder: "Ex. Marie", required: true });
+  const pw = h("input", { type: "password", autocomplete: isSignup ? "new-password" : "current-password", required: true });
+  const code = h("input", { placeholder: "Le code donné par l'organisateur", autocomplete: "off" });
+  const foyer = h("input", { placeholder: "Ex. Famille Martin", maxlength: 40 });
+  const btn = h("button", { type: "submit" }, isSignup ? "Créer mon compte" : "Me connecter");
+  const form = h("form", { onsubmit: async (e) => {
+    e.preventDefault(); err.textContent = ""; btn.disabled = true;
+    try {
+      const body = isSignup ? { name: name.value, password: pw.value, code: code.value, foyer: foyer.value } : { name: name.value, password: pw.value };
+      const { token: t } = await api(isSignup ? "/signup" : "/login", { method: "POST", body });
+      setToken(t); await boot();
+    } catch (ex) { err.textContent = ex.message; btn.disabled = false; }
+  } },
+    h("label", {}, "Ton prénom"), name,
+    h("label", {}, "Mot de passe"), pw,
+    isSignup && [h("label", {}, "Code famille"), code,
+      h("label", {}, "Ta famille (pour ne pas tirer quelqu'un de ta famille proche)"), foyer],
+    err, h("div", { class: "row between" }, btn,
+      h("button", { type: "button", class: "ghost", onclick: () => renderAuth(isSignup ? "login" : "signup") },
+        isSignup ? "J'ai déjà un compte" : "Première fois ?")));
+  app.replaceChildren(
+    h("header", {}, h("h1", {}, "🎄 Noël en famille")),
+    h("main", {}, h("div", { class: "card center" }, h("div", { class: "snow" }, "🎁"),
+      h("h2", {}, isSignup ? "Rejoindre la famille" : "Bienvenue"),
+      h("p", { class: "mute" }, "Tirage au sort secret + listes de cadeaux.")),
+      h("div", { class: "card" }, form)));
+}
+
+/* ---------- application ---------- */
+async function boot() {
+  try {
+    state.me = await api("/me");
+    const m = await api("/members"); state.members = m.members;
+    render();
+  } catch (e) { if (!token) renderAuth(); else app.replaceChildren(h("main", {}, h("p", { class: "err" }, e.message))); }
+}
+async function refreshMembers() { state.members = (await api("/members")).members; }
+
+function render() {
+  const tabs = [["tirage", "🎁 Mon tirage"], ["liste", "📝 Ma liste"], ["famille", "👨‍👩‍👧 Famille"]];
+  if (state.me.isOrganizer) tabs.push(["orga", "⚙️ Organisation"]);
+  const views = { tirage: viewTirage, liste: viewListe, famille: viewFamille, orga: viewOrga };
+  app.replaceChildren(
+    h("header", {}, h("div", {}, h("h1", {}, "🎄 Noël en famille"), h("small", {}, "Salut " + state.me.name + " !")),
+      h("button", { class: "ghost small", style: "color:#fff;border-color:#ffffff55", onclick: () => logout() }, "Quitter")),
+    h("nav", { class: "tabs" }, tabs.map(([k, label]) =>
+      h("button", { class: state.tab === k ? "on" : "", onclick: () => { state.tab = k; state.viewing = null; state.confirm = null; render(); } }, label))),
+    h("main", {}, views[state.tab]()));
+}
+
+function wishList(wishes, empty) {
+  if (!wishes.length) return h("p", { class: "mute" }, empty);
+  return wishes.map((w) => h("div", { class: "wish" },
+    h("b", {}, w.title),
+    w.note && h("span", { class: "mute" }, w.note),
+    safeUrl(w.url) && h("div", {}, h("a", { href: safeUrl(w.url), target: "_blank", rel: "noopener noreferrer" }, "🔗 Voir le lien"))));
+}
+
+function viewTirage() {
+  const me = state.me;
+  if (!me.drawn) return h("div", { class: "card center" }, h("div", { class: "snow" }, "⏳"),
+    h("h2", {}, "Le tirage n'a pas encore eu lieu"),
+    h("p", { class: "mute" }, "L'organisateur le lancera quand tout le monde sera inscrit. En attendant, remplis ta liste de cadeaux !"),
+    h("button", { onclick: () => { state.tab = "liste"; render(); } }, "Aller à ma liste"));
+  if (!me.target) return h("div", { class: "card" }, "Tu n'as pas de tirage (tu t'es inscrit après ?). Préviens l'organisateur.");
+  if (!state.revealed) return h("div", { class: "card reveal" }, h("div", { class: "gift" }, "🎁"),
+    h("h2", {}, "Ton tirage est prêt"), h("p", { class: "mute" }, "Vérifie que personne ne regarde ton écran, puis touche le bouton."),
+    h("button", { class: "red", onclick: () => { state.revealed = true; render(); } }, "Découvrir qui je dois gâter"));
+  return [h("div", { class: "card reveal" }, h("div", { class: "mute" }, "Tu offres un cadeau à"),
+    h("div", { class: "who" }, me.target.name), h("p", { class: "mute" }, "🤫 Chut, c'est un secret !"),
+    h("button", { class: "ghost small", onclick: () => { state.revealed = false; render(); } }, "Masquer")),
+  h("div", { class: "card" }, h("h3", {}, "Ses envies de cadeaux"),
+    wishList(me.target.wishes, me.target.name + " n'a pas encore rempli sa liste. Repasse plus tard !"))];
+}
+
+function viewListe() {
+  const me = state.me;
+  const save = async (wishes) => {
+    try { const r = await api("/me/wishes", { method: "PUT", body: { wishes } }); me.wishes = r.wishes; state.flash = ""; }
+    catch (e) { state.flash = e.message; }
+    render();
+  };
+  const title = h("input", { placeholder: "Ex. Un pull en laine, taille M", maxlength: 120, required: true });
+  const url = h("input", { placeholder: "Lien (facultatif)", inputmode: "url", maxlength: 500 });
+  const note = h("input", { placeholder: "Précision : couleur, marque… (facultatif)", maxlength: 300 });
+  const form = h("form", { onsubmit: (e) => { e.preventDefault(); save([...me.wishes, { title: title.value, url: url.value, note: note.value }]); } },
+    h("label", {}, "Ajouter une idée"), title, h("div", { style: "height:8px" }), url, h("div", { style: "height:8px" }), note,
+    h("div", { style: "height:10px" }), h("button", { type: "submit" }, "Ajouter à ma liste"));
+  const foyer = h("input", { value: me.foyer || "", placeholder: "Ex. Famille Martin", maxlength: 40, list: "familles", disabled: me.drawn });
+  const dl = h("datalist", { id: "familles" }, [...new Set(state.members.map((m) => m.foyer).filter(Boolean))].map((f) => h("option", { value: f })));
+  return [
+    h("div", { class: "card" }, form, h("p", { class: "err" }, state.flash)),
+    h("div", { class: "card" }, h("h3", {}, "Ma liste (" + me.wishes.length + ")"),
+      me.wishes.length ? me.wishes.map((w) => h("div", { class: "wish" },
+        h("div", { class: "row between" }, h("b", {}, w.title),
+          h("button", { class: "ghost small", onclick: () => save(me.wishes.filter((x) => x.id !== w.id)) }, "Retirer")),
+        w.note && h("span", { class: "mute" }, w.note),
+        safeUrl(w.url) && h("div", {}, h("a", { href: safeUrl(w.url), target: "_blank", rel: "noopener noreferrer" }, "🔗 Lien"))))
+        : h("p", { class: "mute" }, "Personne ne peut t'offrir un cadeau qui te plaît sans idée… ajoutes-en !"),
+      h("p", { class: "mute" }, "Tout le monde peut voir ta liste, sauf qu'on ne sait jamais qui t'a tiré 😉")),
+    h("div", { class: "card" }, h("h3", {}, "Ma famille"),
+      h("p", { class: "mute" }, "Les personnes d'une même famille ne se tirent pas entre elles. Écris exactement le même nom que ton conjoint / tes enfants."),
+      foyer, dl, h("div", { style: "height:8px" }),
+      h("button", { disabled: me.drawn, onclick: async () => {
+        try { await api("/me", { method: "PUT", body: { foyer: foyer.value } }); me.foyer = foyer.value.trim(); await refreshMembers(); state.flash = ""; }
+        catch (e) { state.flash = e.message; } render(); } }, "Enregistrer"))];
+}
+
+function viewFamille() {
+  if (state.viewing) {
+    const v = state.viewing;
+    return [h("button", { class: "ghost small", onclick: () => { state.viewing = null; render(); } }, "← Retour"),
+      h("div", { class: "card", style: "margin-top:10px" }, h("h3", {}, "Liste de " + v.name), wishList(v.wishes, "Pas encore d'idées.")) ];
+  }
+  return h("div", { class: "card" }, h("h3", {}, state.members.length + " personnes dans la famille"),
+    state.members.map((m) => h("div", { class: "member", onclick: async () => {
+      try { state.viewing = await api("/members/" + m.slug); render(); } catch (e) { alert(e.message); } } },
+      h("span", {}, m.name, m.organizer && h("span", { class: "pill" }, "organisateur"), m.foyer && h("span", { class: "pill" }, m.foyer)),
+      h("span", { class: "mute" }, m.wishCount + " idée" + (m.wishCount > 1 ? "s" : "") + " ›"))));
+}
+
+function viewOrga() {
+  const ask = (key, label, cls, fn) => h("button", { class: cls, onclick: async () => {
+    if (state.confirm !== key) { state.confirm = key; render(); return; }
+    state.confirm = null;
+    try { await fn(); state.flash = ""; } catch (e) { state.flash = e.message; }
+    state.me = await api("/me"); await refreshMembers(); render();
+  } }, state.confirm === key ? "Sûr ? Touche encore" : label);
+  const me = state.me;
+  return [
+    h("div", { class: "card" }, h("h3", {}, "Tirage au sort"),
+      me.drawn ? [h("p", { class: "ok" }, "✅ Le tirage a été fait. Chacun peut voir son résultat dans son compte."),
+        h("p", { class: "mute" }, "Toi non plus tu ne peux pas voir qui a tiré qui."),
+        ask("reset", "Annuler le tirage et recommencer", "ghost", () => api("/draw/reset", { method: "POST" }))]
+      : [h("p", { class: "mute" }, state.members.length + " inscrits. Lance le tirage quand tout le monde a son compte : plus personne ne pourra s'inscrire ensuite."),
+        ask("draw", "🎲 Lancer le tirage", "red", () => api("/draw", { method: "POST" }))],
+      h("p", { class: "err" }, state.flash)),
+    h("div", { class: "card" }, h("h3", {}, "Membres"),
+      state.members.map((m) => {
+        const pw = h("input", { placeholder: "Nouveau mot de passe", style: "max-width:180px" });
+        return h("div", { class: "wish" }, h("div", { class: "row between" }, h("b", {}, m.name),
+          !m.organizer && !me.drawn && ask("del" + m.slug, "Supprimer", "ghost small", () => api("/members/" + m.slug, { method: "DELETE" }))),
+          h("div", { class: "row", style: "margin-top:6px" }, pw,
+            h("button", { class: "ghost small", onclick: async () => {
+              try { await api("/members/" + m.slug + "/password", { method: "POST", body: { password: pw.value } }); pw.value = ""; pw.placeholder = "✅ Changé"; }
+              catch (e) { pw.value = ""; pw.placeholder = e.message; } } }, "Réinitialiser")));
+      }))];
+}
+
+if (token) boot(); else renderAuth();
+</script>
+</body>
+</html>
